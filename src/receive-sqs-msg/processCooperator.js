@@ -61,9 +61,7 @@ const insertCooperator = async (id, record, driver) => {
         :modified_date, :modified_by_email, :modified_by_id) RETURNING id`.text;
 
   let parameters = buildCooperatorParams(cooperator);
-  console.log('Parameters For Inserting Cooperator:', parameters);
   const result = await driver.query(sql, parameters);
-  console.log('The result of the insert call:', result);
   return result;
 }
 
@@ -93,15 +91,12 @@ const updateCooperator = async (id, record, driver) => {
     const res = await driver.query(sql, parameters);
     const count = res[0].count;
     if (count > 0) {
-      console.log('Cooperator record exists in database so going to update it');
       // update Cooperator record;
       recId = await updateDatabaseRecord(cooperator, driver);
     } else {
-      console.log('Cooperator record does not exist in database so going to update it');
       // even though we're in an update path, we want to handle the place where a record is out of sync with the database
       // if you update it in dynamo and it doesn't already exist in the replica, this logic will create it.
       recId = await insertCooperator(id, record, driver);
-      console.log('Cooperator record inserted:', recId);
     }
   } catch (err) {
     console.log('Error:', err);

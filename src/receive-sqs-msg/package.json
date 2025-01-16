@@ -1,0 +1,17 @@
+{
+  "name": "receive",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sns": "^3.465.0",
+    "@aws-sdk/client-ssm": "^3.441.0",
+    "pg": "^8.11.0",
+    "sql-template-strings": "^2.2.2"
+  },
+  "author": "",
+  "license": "ISC"
+}
