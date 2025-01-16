@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless SNS for errors from db replication
+
+Parameters:
+  StackName:
+    Type: String
+    Description: The name of the stack you deployed for the serverless learning resources
+
+Resources:
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Sub ${StackName}-sns-replication-errors
+      TopicName: !Sub ${StackName}-sns-replication-errors
+
+  SNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'AllowOwnerToPublish'
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - sns:Publish
+              - sns:RemovePermission
+              - sns:SetTopicAttributes
+              - sns:DeleteTopic
+              - sns:ListSubscriptionsByTopic
+              - sns:GetTopicAttributes
+              - sns:Receive
+              - sns:AddPermission
+            Resource: !Ref SNSTopic
+          - Sid: 'AllowSubscribers'
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - sns:Subscribe
+            Resource: !Ref SNSTopic
+            Condition:
+              StringLike:
+                sns:Endpoint:
+                  - "@timmons.com"
+                  - "@agfc.ar.gov"
+
+      Topics:
+        - !Ref SNSTopic
+
+Outputs:
+  SNSTopicArn:
+    Description: The ARN of the SNS topic
+    Value: !Ref SNSTopic
+  SNSTopicName:
+    Description: The name of the SNS topic
+    Value: !GetAtt SNSTopic.TopicName

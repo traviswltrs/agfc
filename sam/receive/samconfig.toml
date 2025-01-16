@@ -1,0 +1,10 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "agfc-receive-app"
+resolve_s3 = true
+s3_prefix = "agfc-receive-app"
+region = "us-east-2"
+profile = "prod"
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+parameter_overrides = "VPCStackName=\"agfc-cwd\" SNSTopicName=\"agfc-cwd-prod-sns-topic\" SendingAccount=\"879746101584\" SSMPath=\"/agfc-cwd/replica/\" SecurityGroup=\"sg-432c522b\" Subnet1=\"subnet-c649e6bd\" Subnet2=\"subnet-d81a0e92\""
+image_repositories = []

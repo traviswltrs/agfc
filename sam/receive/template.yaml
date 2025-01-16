@@ -1,0 +1,201 @@
+# This is the receiving application
+# It lives in a different account from the sending application
+AWSTemplateFormatVersion: 2010-09-09
+Transform:
+  - AWS::Serverless-2016-10-31
+Description: Serverless SNS sender (cross account)
+
+Parameters:
+  VPCStackName:
+    Type: String
+    Description: The name of the stack
+  SNSTopicName:
+    Type: String
+    Default: test-app-sns-topic
+    Description: The name of the SNS topic
+  SendingAccount:
+    Type: String
+    Default: 123456789012
+    Description: The account number of the sending application
+  SecurityGroup:
+    Type: String
+    Default: sg-12345678901234567
+    Description: The security group ID of the sending application
+  Subnet1:
+    Type: String
+    Default: subnet-12345678901234567
+    Description: The subnet ID of the sending application
+  Subnet2:
+    Type: String
+    Default: subnet-12345678901234567
+    Description: The subnet ID of the sending application
+  SSMPath:
+    Type: String
+    Description: Base path in SSM the api will read config from
+
+
+Globals:
+  Function:
+    Timeout: 180
+    Runtime: nodejs18.x
+    MemorySize: 256
+    Environment:
+      Variables:
+        NOPG: "FALSE"
+        NORDSDATAAPI: "TRUE"
+        SSMPath: !Ref SSMPath
+    VpcConfig:
+      SecurityGroupIds:
+          - !Ref SecurityGroup
+      SubnetIds:
+          - !Ref Subnet1
+          - !Ref Subnet2
+
+
+Resources:
+# ---------------------------------------------------------------------------------------------------------------------------
+# Roles
+# ---------------------------------------------------------------------------------------------------------------------------
+  BaseQueryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+
+# ---------------------------------------------------------------------------------------------------------------------------
+# Queues
+# ---------------------------------------------------------------------------------------------------------------------------
+  SQSQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${SNSTopicName}-sqs-queue
+      VisibilityTimeout: 180
+
+# ---------------------------------------------------------------------------------------------------------------------------
+# SNS definitions
+# ---------------------------------------------------------------------------------------------------------------------------
+  Sns:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: ./sns.yaml
+      Parameters:
+        StackName: !Ref VPCStackName
+
+# # ---------------------------------------------------------------------------------------------------------------------------
+# # Subscriptions to SNS Topics
+# # ---------------------------------------------------------------------------------------------------------------------------
+#   SNSTopicSubscription:
+#     Type: AWS::SNS::Subscription
+#     Properties:
+#       Endpoint: !GetAtt SQSQueue.Arn
+#       Protocol: sqs
+#       TopicArn: arn:aws:sns:us-east-1:879746101584:agfc-cwd-prod-sns-topic
+
+
+# ---------------------------------------------------------------------------------------------------------------------------
+# Policies
+# ---------------------------------------------------------------------------------------------------------------------------
+  SQSQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: sqs:SendMessage
+            Resource: !GetAtt SQSQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Sub arn:aws:sns:us-east-1:${SendingAccount}:${SNSTopicName}
+      Queues:
+        - !Ref SQSQueue
+
+  SSMBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub 'AppSSMAccess'
+      Roles:
+        - !Ref BaseQueryRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'ssm:GetParametersByPath'
+              - 'ssm:GetParameter'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SSMPath}'
+              - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SSMPath}*'
+
+  SNSTopicPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub 'AppSnsAccess'
+      Roles:
+        - !Ref BaseQueryRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'AllowOwnerToPublish'
+            Effect: Allow
+            Action:
+              - sns:Publish
+            Resource: !GetAtt Sns.Outputs.SNSTopicArn
+
+
+# ---------------------------------------------------------------------------------------------------------------------------
+# Functions
+# ---------------------------------------------------------------------------------------------------------------------------
+  TriageDBConnectionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../src/triage-agfc-aws-db
+      Handler: index.handler
+      Role: !GetAtt BaseQueryRole.Arn
+
+  ReceiverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../../src/receive-sqs-msg
+      Handler: index.handler
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref SQSQueue
+          SNS_DL_TOPIC_ARN: !GetAtt Sns.Outputs.SNSTopicArn
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt SQSQueue.Arn
+            ScalingConfig:
+              MaximumConcurrency: 10
+      Role: !GetAtt BaseQueryRole.Arn
+
+# ---------------------------------------------------------------------------------------------------------------------------
+# Permissions - Allow the SQS queue to invoke the ReceiverFunction lambda
+# ---------------------------------------------------------------------------------------------------------------------------
+  ReceiverFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ReceiverFunction.Arn
+      Principal: sqs.amazonaws.com
+      SourceArn: !GetAtt SQSQueue.Arn
+
+# output sqs arn
+Outputs:
+  SQS:
+    Value: !GetAtt SQSQueue.Arn 
